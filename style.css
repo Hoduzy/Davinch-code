@@ -1,0 +1,258 @@
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #2a2320;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+body { position: fixed; inset: 0; }
+
+#view {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+button {
+  font: inherit;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+/* ---------- 위쪽 정보 ---------- */
+#hud-top {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
+  background: linear-gradient(rgba(0,0,0,0.65), rgba(0,0,0,0.35) 75%, rgba(0,0,0,0));
+  pointer-events: none;
+}
+#hud-top button { pointer-events: auto; }
+
+#status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+#turn {
+  font-weight: 700;
+  font-size: 18px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #ffd54a;
+  color: #1a1a1a;
+}
+#turn.ai { background: rgba(255,255,255,0.18); color: #fff; }
+#pile-count { font-size: 15px; opacity: 0.9; flex: 1; }
+
+.chip {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.3);
+  background: rgba(0,0,0,0.45);
+  color: #fff;
+  font-size: 15px;
+}
+
+#players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pcard {
+  flex: 1 1 220px;
+  max-width: 340px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.45);
+  border: 2px solid transparent;
+}
+.pcard.active { border-color: #ffd54a; }
+.pcard.dead { opacity: 0.45; }
+.pcard .pname { font-size: 13px; font-weight: 600; margin-bottom: 4px; display: flex; gap: 6px; }
+.pcard .pname .meta { font-weight: 400; opacity: 0.75; }
+.pcard .row { display: flex; flex-wrap: wrap; gap: 3px; align-items: flex-start; }
+
+.mt {
+  width: 22px;
+  min-height: 30px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+.mt.black { background: #1c1c22; color: #f5f1e6; border: 1px solid #666; }
+.mt.white { background: #f1ede2; color: #17171c; border: 1px solid #bbb; }
+.mt.hidden-tile:not(.mine) { color: transparent; }
+.mt.hidden-tile.mine { opacity: 0.75; }
+.mt.open { box-shadow: 0 0 0 2px #ffd54a; }
+.mt .no { font-size: 8px; font-weight: 400; color: #ff7b7b; margin-top: 2px; letter-spacing: -0.5px; }
+.mt.white .no { color: #c62828; }
+.mt.held { outline: 2px dashed #8fd3ff; outline-offset: 1px; }
+
+#log {
+  pointer-events: auto;
+  margin: 8px 0 0;
+  padding: 8px 12px 8px 30px;
+  max-width: 520px;
+  max-height: 34vh;
+  overflow-y: auto;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.7);
+  font-size: 14px;
+  line-height: 1.5;
+}
+#log li.good { color: #9be89b; }
+#log li.bad { color: #ff9a9a; }
+
+/* ---------- 아래쪽 안내 / 버튼 ---------- */
+#bottom {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: 0;
+  padding: 12px 12px calc(env(safe-area-inset-bottom) + 14px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+#prompt:empty { display: none; }
+#prompt {
+  font-size: 18px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.55);
+  text-align: center;
+}
+#actions { display: flex; gap: 14px; pointer-events: auto; }
+.big {
+  min-width: 150px;
+  min-height: 60px;
+  padding: 0 24px;
+  border-radius: 16px;
+  border: none;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a1a1a;
+  background: #ffd54a;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+}
+.big.secondary { background: #e8e8e8; }
+.big:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.3); }
+
+/* ---------- 토스트 ---------- */
+#toast {
+  position: fixed;
+  left: 50%; top: 42%;
+  transform: translate(-50%, -50%) scale(0.9);
+  padding: 14px 26px;
+  border-radius: 16px;
+  background: rgba(0,0,0,0.78);
+  font-size: 24px;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+  text-align: center;
+  max-width: 90vw;
+}
+#toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+#toast.good { background: rgba(30,120,60,0.92); }
+#toast.bad { background: rgba(160,40,40,0.92); }
+
+/* ---------- 모달 (숫자 선택 등) ---------- */
+#modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px 16px calc(env(safe-area-inset-bottom) + 16px);
+}
+#modal[hidden] { display: none; }
+#modal-card {
+  width: min(640px, 100%);
+  max-height: 90%;
+  overflow-y: auto;
+  background: #2e2a27;
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+#modal-card h2 { margin: 0 0 6px; font-size: 21px; }
+#modal-card p { margin: 0 0 14px; opacity: 0.85; font-size: 15px; }
+
+.num-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+}
+.num {
+  min-height: 64px;
+  border-radius: 12px;
+  font-size: 26px;
+  font-weight: 800;
+  border: 2px solid #777;
+}
+.num.black { background: #1c1c22; color: #f5f1e6; }
+.num.white { background: #f1ede2; color: #17171c; }
+.num.joker { font-size: 18px; }
+.num.tried { opacity: 0.35; text-decoration: line-through; }
+.num:active { transform: scale(0.95); }
+.modal-foot { display: flex; justify-content: flex-end; margin-top: 14px; gap: 10px; }
+
+.place-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 0;
+}
+.place-row .mt { width: 36px; min-height: 50px; font-size: 20px; }
+.gap-btn {
+  width: 44px;
+  min-height: 60px;
+  border-radius: 10px;
+  border: 2px dashed #ffd54a;
+  background: rgba(255,213,74,0.15);
+  color: #ffd54a;
+  font-size: 22px;
+  font-weight: 800;
+}
+.own-btn {
+  width: 56px;
+  min-height: 76px;
+  border-radius: 10px;
+  font-size: 26px;
+  font-weight: 800;
+  border: 3px solid #ffd54a;
+}
+.own-btn.black { background: #1c1c22; color: #f5f1e6; }
+.own-btn.white { background: #f1ede2; color: #17171c; }
+
+@media (max-width: 600px) {
+  .num-grid { grid-template-columns: repeat(5, 1fr); }
+  #turn { font-size: 15px; }
+}

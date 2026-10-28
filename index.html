@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>다빈치 코드 3D</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/": "./vendor/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="view"></canvas>
+
+  <div id="hud-top">
+    <div id="status-row">
+      <div id="turn"></div>
+      <div id="pile-count"></div>
+      <button id="btn-log" class="chip">기록</button>
+      <button id="btn-view" class="chip">정면</button>
+    </div>
+    <div id="players"></div>
+    <ol id="log" hidden></ol>
+  </div>
+
+  <div id="bottom">
+    <div id="prompt"></div>
+    <div id="actions"></div>
+  </div>
+
+  <div id="toast"></div>
+
+  <div id="modal" hidden>
+    <div id="modal-card"></div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
