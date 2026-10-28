@@ -26,6 +26,7 @@
       <div id="pile-count"></div>
       <button id="btn-log" class="chip">기록</button>
       <button id="btn-view" class="chip">정면</button>
+      <button id="btn-quit" class="chip">나가기</button>
     </div>
     <div id="players"></div>
     <ol id="log" hidden></ol>
@@ -37,6 +38,42 @@
   </div>
 
   <div id="toast"></div>
+
+  <div id="menu" class="screen" hidden>
+    <div class="panel">
+      <h1>다빈치 코드 3D</h1>
+      <label class="field">
+        <span>내 이름</span>
+        <input id="name" maxlength="12" autocomplete="off" placeholder="플레이어">
+      </label>
+      <button id="btn-solo" class="big wide">혼자 하기 (AI 3명)</button>
+      <div id="online-box">
+        <h2>온라인 (4명)</h2>
+        <button id="btn-create" class="big wide">방 만들기</button>
+        <div class="join-row">
+          <input id="code" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="방 코드">
+          <button id="btn-join" class="big">입장</button>
+        </div>
+        <p id="online-note"></p>
+      </div>
+      <p id="menu-msg"></p>
+    </div>
+  </div>
+
+  <div id="lobby" class="screen" hidden>
+    <div class="panel">
+      <h2>대기실</h2>
+      <p class="code-label">방 코드</p>
+      <div id="lobby-code"></div>
+      <button id="btn-copy" class="chip">초대 링크 공유</button>
+      <ol id="lobby-seats"></ol>
+      <p id="lobby-status"></p>
+      <div class="lobby-actions">
+        <button id="btn-fill-ai" class="big" hidden>빈자리 AI로 채우고 시작</button>
+        <button id="btn-leave" class="big secondary">나가기</button>
+      </div>
+    </div>
+  </div>
 
   <div id="modal" hidden>
     <div id="modal-card"></div>

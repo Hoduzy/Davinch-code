@@ -244,9 +244,13 @@ export class TableScene {
   }
 
   // 게임 상태 → 모든 타일의 목표 위치 계산 후 애니메이션
+  // humanId 플레이어가 항상 내 자리(앞쪽)에 오도록 자리를 돌려서 배치
+  // 타일 앞면은 값을 아는 타일(view에서 value가 있는 타일)에만 붙음
   sync(game, { humanId = 0, revealAll = false, stagger = 0 } = {}) {
     const poses = new Map();
-    const seatOf = (pid) => pid; // 플레이어 인덱스 = 자리 인덱스
+    const n = game.players.length;
+    const seatOf = (pid) => (pid - humanId + n) % n;
+    this.humanId = humanId;
 
     for (const t of game.pile) poses.set(t.id, { ...this.pilePos.get(t.id), state: 'pile' });
 
@@ -285,14 +289,14 @@ export class TableScene {
     const heldCount = {};
     for (const { tile, pid } of held) {
       const k = heldCount[pid] = (heldCount[pid] || 0) + 1;
-      const sq = seatQuat(pid);
+      const sq = seatQuat(seatOf(pid));
       // 줄 오른쪽 끝 옆에 들고 있음 (주인 기준 오른쪽 = 로컬 +x)
       const n = game.player(pid).hand.length;
       const rowEnd = ((n - 1) / 2) * Math.min(GAP, MAX_ROW / Math.max(n - 1, 1));
       const x = Math.min(rowEnd + 0.3, 0.8) - (k - 1) * 0.2;
       let local;
       let q;
-      if (pid === 0) {
+      if (seatOf(pid) === 0) {
         local = new THREE.Vector3(x, TILE_H / 2 + 0.04, HELD_R + 0.04);
         q = quatFromEuler(-0.35, -0.25, 0);
       } else {
@@ -307,8 +311,7 @@ export class TableScene {
       const mesh = this.tileMeshes.get(t.id);
       const pose = poses.get(t.id);
       if (!pose) continue;
-      const known = revealAll || t.revealed || (t.ownerId === humanId && !game.pile.includes(t));
-      this._setFace(mesh, t, known);
+      this._setFace(mesh, t, t.value !== null && t.value !== undefined);
 
       const pos = pose.pos.clone();
       if (t.id === this.selectedId) pos.y += 0.05;
@@ -332,18 +335,19 @@ export class TableScene {
       };
     }
 
-    this._updateSeats(game);
+    this._updateSeats(game, seatOf);
   }
 
-  _updateSeats(game) {
-    const q = seatQuat(game.current);
+  _updateSeats(game, seatOf) {
+    const q = seatQuat(seatOf(game.current));
     this.turnStrip.position.copy(new THREE.Vector3(0, 0.002, ROW_R - 0.08).applyQuaternion(q));
     this.turnStrip.quaternion.copy(q).multiply(quatFromEuler(-Math.PI / 2, 0, 0));
     this.turnStrip.visible = game.phase !== 'over';
-    for (let seat = 1; seat < 4; seat++) {
-      const p = game.player(seat);
+    for (const p of game.players) {
+      const seat = seatOf(p.id);
+      if (seat === 0) continue;
       const av = this.avatars[seat];
-      const active = game.current === seat && game.phase !== 'over';
+      const active = game.current === p.id && game.phase !== 'over';
       const key = `${p.name}|${active}|${p.eliminated}`;
       if (key === av.key) continue;
       av.key = key;

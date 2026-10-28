@@ -11,12 +11,16 @@ function el(tag, cls, text) {
 }
 
 const shortValue = (v) => (v === JOKER ? '–' : String(v));
+const known = (t) => t.value !== null && t.value !== undefined;
 
-function miniTile(tile, { showValue, mine = false, wrong = [] } = {}) {
+// 화면에 보여주는 상태(view)에는 이 플레이어가 알 수 있는 값만 들어 있음 (모르는 값은 null)
+function miniTile(tile, { mine = false, wrong = [] } = {}) {
+  const showValue = known(tile);
   const m = el('div', `mt ${tile.color}`);
   if (tile.revealed) m.classList.add('open');
   else m.classList.add('hidden-tile');
   if (mine) m.classList.add('mine');
+  if (!showValue) m.classList.add('unknown');
   m.append(document.createTextNode(showValue ? shortValue(tile.value) : '?'));
   if (!tile.revealed && wrong.length) m.append(el('span', 'no', `≠${wrong.map(shortValue).join(',')}`));
   return m;
@@ -62,17 +66,17 @@ export class Hud {
       const hidden = p.hand.filter((t) => !t.revealed).length;
       const name = el('div', 'pname', p.name);
       name.append(el('span', 'meta', p.eliminated ? '탈락' : `숨김 ${hidden}개`));
+      if (p.offline) name.append(el('span', 'meta', '연결 끊김'));
       if (game.winner === p.id) name.append(el('span', 'meta', '🏆 승리'));
       const row = el('div', 'row');
       for (const t of p.hand) {
         row.append(miniTile(t, {
-          showValue: t.revealed || mine || game.phase === Phase.OVER,
           mine,
           wrong: wrongBy.get(t.id) || [],
         }));
       }
       if (game.drawn && game.current === p.id) {
-        const d = miniTile(game.drawn, { showValue: mine || game.drawn.revealed, mine });
+        const d = miniTile(game.drawn, { mine });
         d.classList.add('held');
         d.title = '뽑은 타일';
         row.append(d);
@@ -119,29 +123,43 @@ export class Hud {
     this.toastTimer = setTimeout(() => { t.className = ''; }, ms);
   }
 
-  /** 아래쪽 큰 버튼들. [{key, label, secondary}] → 누른 key */
+  /** 아래쪽 큰 버튼들. [{key, label, secondary}] → 누른 key (clearActions로 닫히면 null) */
   choose(buttons) {
     const box = $('actions');
+    this.clearActions();
     return new Promise((resolve) => {
-      box.replaceChildren();
+      this._actionsDone = (v) => { this._actionsDone = null; box.replaceChildren(); resolve(v); };
       for (const b of buttons) {
         const btn = el('button', `big${b.secondary ? ' secondary' : ''}`, b.label);
-        btn.addEventListener('click', () => { box.replaceChildren(); resolve(b.key); }, { once: true });
+        btn.addEventListener('click', () => this._actionsDone?.(b.key), { once: true });
         box.append(btn);
       }
     });
   }
 
+  clearActions() { this._actionsDone?.(null); }
+
   _openModal(build) {
     const modal = $('modal');
     const card = $('modal-card');
+    this.closeModal();
     return new Promise((resolve) => {
       card.replaceChildren();
-      const done = (v) => { modal.hidden = true; card.replaceChildren(); resolve(v); };
+      const done = (v) => {
+        if (this._modalDone !== done) return;
+        this._modalDone = null;
+        modal.hidden = true;
+        card.replaceChildren();
+        resolve(v);
+      };
+      this._modalDone = done;
       build(card, done);
       modal.hidden = false;
     });
   }
+
+  /** 열린 창을 닫음 (기다리던 쪽은 null을 받음) */
+  closeModal() { this._modalDone?.(null); }
 
   /** 숫자 선택 (0~11, 조커). 취소하면 null */
   pickNumber({ color, ownerName, tried = [] }) {
@@ -199,13 +217,13 @@ export class Hud {
     });
   }
 
-  gameOver({ title, message }) {
+  gameOver({ title, message, button = '다시 하기' }) {
     return this._openModal((card, done) => {
       card.append(el('h2', '', title));
       card.append(el('p', '', message));
       const foot = el('div', 'modal-foot');
-      const again = el('button', 'big', '다시 하기');
-      again.addEventListener('click', () => done());
+      const again = el('button', 'big', button);
+      again.addEventListener('click', () => done(true));
       foot.append(again);
       card.append(foot);
     });

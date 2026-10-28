@@ -65,7 +65,8 @@ export class Game {
   constructor({ players, handSize = 3, rng = Math.random, firstPlayer = 0 }) {
     this.rng = rng;
     this.handSize = handSize;
-    this.tiles = makeTiles();
+    // id를 매 판 무작위로 섞어서, id만 보고는 숫자를 알 수 없게 함 (온라인에서 id가 공개되므로)
+    this.tiles = shuffle(makeTiles(), rng).map((t, i) => ({ ...t, id: i }));
     this.pile = shuffle(this.tiles.slice(), rng);
     this.players = players.map((p, i) => ({
       id: i, name: p.name, isHuman: !!p.isHuman, hand: [], eliminated: false,
@@ -79,6 +80,46 @@ export class Game {
     this.log = [];
     this.winner = null;
     this.pendingSetup = [];      // 초기 패에서 자리를 직접 골라야 하는 조커들
+  }
+
+  // 전체 상태 저장/복원 (온라인 방장 교체용). 타일은 id로 저장
+  toJSON() {
+    const ids = (list) => list.map((t) => t.id);
+    return {
+      handSize: this.handSize,
+      tiles: this.tiles.map(({ id, color, value, revealed, ownerId }) => ({ id, color, value, revealed, ownerId })),
+      pile: ids(this.pile),
+      players: this.players.map((p) => ({ ...p, hand: ids(p.hand) })),
+      current: this.current,
+      phase: this.phase,
+      drawn: this.drawn ? this.drawn.id : null,
+      correctThisTurn: this.correctThisTurn,
+      lastGuess: this.lastGuess,
+      wrongGuesses: this.wrongGuesses,
+      log: this.log,
+      winner: this.winner,
+      pendingSetup: this.pendingSetup,
+    };
+  }
+
+  static fromJSON(data, rng = Math.random) {
+    const g = Object.create(Game.prototype);
+    g.rng = rng;
+    g.handSize = data.handSize;
+    g.tiles = data.tiles.map((t) => ({ ...t }));
+    const byId = (id) => g.tiles[id];
+    g.pile = data.pile.map(byId);
+    g.players = data.players.map((p) => ({ ...p, hand: p.hand.map(byId) }));
+    g.current = data.current;
+    g.phase = data.phase;
+    g.drawn = data.drawn === null ? null : byId(data.drawn);
+    g.correctThisTurn = data.correctThisTurn;
+    g.lastGuess = data.lastGuess;
+    g.wrongGuesses = data.wrongGuesses.map((w) => ({ ...w }));
+    g.log = data.log.map((e) => ({ ...e }));
+    g.winner = data.winner;
+    g.pendingSetup = data.pendingSetup.map((x) => ({ ...x }));
+    return g;
   }
 
   tile(id) { return this.tiles[id]; }
