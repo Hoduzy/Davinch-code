@@ -12,7 +12,8 @@
     {
       "imports": {
         "three": "./vendor/three.module.js",
-        "three/addons/": "./vendor/"
+        "three/addons/": "./vendor/",
+        "@pixiv/three-vrm": "./vendor/three-vrm.module.min.js"
       }
     }
   </script>
@@ -41,6 +42,11 @@
 
   <div id="menu" class="screen" hidden>
     <div class="panel">
+      <div class="menu-top">
+        <span id="coin-badge" class="coin-badge" hidden></span>
+        <button id="btn-shop" class="chip">상점</button>
+        <button id="btn-settings" class="chip">설정</button>
+      </div>
       <h1>다빈치 코드 3D</h1>
       <label class="field">
         <span>내 이름</span>
@@ -49,6 +55,10 @@
       <button id="btn-solo" class="big wide">혼자 하기 (AI 3명)</button>
       <div id="online-box">
         <h2>온라인 (4명)</h2>
+        <div class="bet-row">
+          <span>베팅</span>
+          <div id="bet-options" class="bet-options"></div>
+        </div>
         <button id="btn-create" class="big wide">방 만들기</button>
         <div class="join-row">
           <input id="code" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="방 코드">
@@ -66,12 +76,44 @@
       <p class="code-label">방 코드</p>
       <div id="lobby-code"></div>
       <button id="btn-copy" class="chip">초대 링크 공유</button>
+      <p id="lobby-bet" class="lobby-bet"></p>
       <ol id="lobby-seats"></ol>
       <p id="lobby-status"></p>
       <div class="lobby-actions">
         <button id="btn-fill-ai" class="big" hidden>빈자리 AI로 채우고 시작</button>
         <button id="btn-leave" class="big secondary">나가기</button>
       </div>
+    </div>
+  </div>
+
+  <div id="shop" class="screen sheet" hidden>
+    <div class="panel wide-panel">
+      <div class="sheet-head">
+        <h2>상점</h2>
+        <span id="shop-coins" class="coin-badge"></span>
+        <button id="shop-close" class="chip">닫기</button>
+      </div>
+      <p id="shop-note" class="small"></p>
+      <div id="shop-tabs" class="tabs"></div>
+      <div id="shop-grid" class="item-grid"></div>
+    </div>
+  </div>
+
+  <div id="settings" class="screen sheet" hidden>
+    <div class="panel wide-panel">
+      <div class="sheet-head">
+        <h2 id="settings-title">설정</h2>
+        <button id="settings-close" class="chip">닫기</button>
+      </div>
+      <div id="settings-body"></div>
+    </div>
+  </div>
+
+  <div id="loading" class="screen" hidden>
+    <div class="panel loading-panel">
+      <h2 id="loading-title">캐릭터 불러오는 중…</h2>
+      <div class="bar"><div id="loading-bar"></div></div>
+      <p id="loading-text"></p>
     </div>
   </div>
 

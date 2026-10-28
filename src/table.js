@@ -14,8 +14,12 @@ export class TableController {
    * @param {(action: object) => (string|null|Promise<string|null>)} opts.send 오류 메시지 또는 null
    * @param {() => void} opts.onGameOver 게임 종료 창의 버튼을 눌렀을 때
    * @param {string} opts.overButton
+   * @param {object[]} [opts.characters] 플레이어 번호별 미리 만든 캐릭터 (characters.js)
+   * @param {(view: object) => void} [opts.onOver] 게임이 끝났을 때 한 번 (보상 처리 등)
    */
-  constructor({ scene, hud, mySeat, send, onGameOver, overButton = '다시 하기' }) {
+  constructor({ scene, hud, mySeat, send, onGameOver, overButton = '다시 하기', characters = [], onOver = null }) {
+    this.characters = characters;
+    this.onOver = onOver;
     this.scene = scene;
     this.hud = hud;
     this.mySeat = mySeat;
@@ -50,12 +54,15 @@ export class TableController {
     this.view = v;
     if (fresh) {
       this.gameId = v.gameId;
+      this.scene.setLooks(v.players.map((p) => p.look));
       this.scene.reset(v);
+      this.scene.setCharacters(this.characters, this.mySeat);
       this.logSeen = v.logBase + v.log.length;
       this.modeKey = null;
     }
     this._toasts(v);
     this.scene.setSelected(this.selected ?? (v.announce ? v.announce.tileId : null));
+    this._updateFocus(v);
     this.scene.sync(v, { humanId: this.mySeat, revealAll: v.phase === Phase.OVER, stagger: fresh ? 0.06 : 0 });
     this.hud.render(v, this.mySeat);
     this._refreshMode();
@@ -64,11 +71,36 @@ export class TableController {
   // ---------- 알림 ----------
   _name(id) { return id === this.mySeat ? '나' : this.view.player(id).name; }
 
+  // 상대 캐릭터들이 바라볼 곳: 추리 중인 타일 → 차례인 사람
+  _updateFocus(v) {
+    const tile = this.selected ?? (v.announce ? v.announce.tileId : null);
+    if (tile !== null && tile !== undefined) this.scene.setFocus(this.scene.tilePosition(tile));
+    else if (v.phase === Phase.DRAW) this.scene.setFocus(null);
+    else this.scene.setFocus(this.scene.playerPoint(v.current));
+  }
+
+  _look(pid) {
+    const p = this.view.players[pid];
+    return (p && p.look) || {};
+  }
+
   _toasts(v) {
     const end = v.logBase + v.log.length;
     let msg = null;
     for (let i = Math.max(this.logSeen, v.logBase); i < end; i++) {
       const e = v.log[i - v.logBase];
+      // 캐릭터 반응과 이펙트 (모두에게 같은 장면)
+      if (e.type === 'guess') {
+        this.scene.react(e.by, e.correct ? 'correct' : 'wrong');
+        this.scene.react(e.target, e.correct ? 'hit' : 'dodge');
+        if (e.correct) this.scene.playEffect(this._look(e.by).effectCorrect, 'effectCorrect', { tileId: e.tileId });
+      } else if (e.type === 'eliminated') {
+        this.scene.react(e.by, 'lose');
+      } else if (e.type === 'over' && e.winner !== null) {
+        this.scene.react(e.winner, 'win');
+        this.scene.playEffect(this._look(e.winner).effectWin, 'effectWin', { pid: e.winner });
+        if (this.onOver) this.onOver(v);
+      }
       if (e.type === 'guess') {
         const val = valueLabel(e.value);
         if (e.by === this.mySeat) {

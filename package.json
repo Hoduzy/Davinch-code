@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "test:online": "firebase emulators:exec --only auth,database --project demo-davinci \"node --test tests/online.emulator.mjs\""
+    "test:online": "firebase emulators:exec --only auth,database --project demo-davinci \"node --test --test-concurrency=1 tests/economy.emulator.mjs tests/online.emulator.mjs\"",
+    "rules": "node tools/build-rules.mjs"
   },
   "devDependencies": {
     "firebase": "^10.12.2",

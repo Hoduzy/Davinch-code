@@ -21,6 +21,7 @@ export function buildView(pub, priv) {
     kind: p.kind,
     isHuman: p.kind === 'human',
     offline: !!p.offline,
+    look: p.look || null,
     eliminated: !!p.eliminated,
     hand: (p.hand || []).map((t) => mk(t, i)),
   }));

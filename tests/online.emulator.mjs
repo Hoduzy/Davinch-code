@@ -2,27 +2,19 @@
 // 실행: npm run test:online   (Java 필요, 처음 실행 때 에뮬레이터를 내려받음)
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import * as app from 'firebase/app';
-import * as auth from 'firebase/auth';
-import * as database from 'firebase/database';
-import { connectFirebase } from '../src/net/firebase.js';
+import { client, resetWithConfig } from './emu-helpers.mjs';
 import { OnlineRoom } from '../src/online.js';
+import { Economy } from '../src/economy.js';
 import { Phase, validPositions } from '../src/game.js';
 import { buildView } from '../src/view.js';
 
-const PROJECT = process.env.GCLOUD_PROJECT || 'demo-davinci';
-const CONFIG = { apiKey: 'demo-key', projectId: PROJECT, databaseURL: `http://127.0.0.1:9000?ns=${PROJECT}` };
-const EMU = { dbHost: '127.0.0.1', dbPort: 9000, authUrl: 'http://127.0.0.1:9099' };
 const FAST = { setup: 20, think: 20, announce: 20, decide: 20, place: 20 };
 // Firebase SDK(auth)가 닫은 뒤에도 프로세스를 붙잡고 있어서, 테스트가 끝나면 정리 후 종료
 after(() => { setTimeout(() => process.exit(), 1000).unref(); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-let appCount = 0;
 const dbg = process.env.DEBUG ? (...x) => console.log('[dbg]', ...x) : () => {};
 
-async function client() {
-  return connectFirebase(CONFIG, { app, auth, database }, { emulator: EMU, appName: `c${appCount++}`, persistence: 'memory' });
-}
+test.before(async () => { await resetWithConfig(); });
 
 let progress = () => '';
 async function until(cond, ms = 20000, what = '조건') {
@@ -209,4 +201,46 @@ test('대기실: 방장이 빈자리를 AI로 채우고 시작 / 대기실에서
   assert.equal(seen.pub.players.filter((p) => p.kind === 'ai').length, 1);
   await Promise.all([ra.leave(), rb.leave(), rc2.leave()]);
   await Promise.all([a, b, c].map((x) => x.close()));
+});
+
+test('베팅 방: 각자 같은 금액을 걸고, 1등만 베팅액의 2배를 받음', { timeout: 120000 }, async () => {
+  const dbs = await Promise.all([client(), client(), client(), client()]);
+  const ecos = dbs.map((d) => new Economy(d));
+  await Promise.all(ecos.map((e) => e.start()));
+  await Promise.all(ecos.map((e) => e.ensureWallet()));
+  const results = [];
+  const opts = (i) => ({
+    name: `P${i}`, delays: FAST, economy: ecos[i],
+    onResult: (r) => { results[i] = r; if (r.winner === dbs[i].uid) ecos[i].claimPayout(rooms[i].code).catch(() => {}); },
+    onPrepare: async (looks) => { prepared[i] = looks; },
+  });
+  const prepared = [];
+  const rooms = [];
+  // 코인보다 큰 베팅은 방을 못 만듦
+  await assert.rejects(OnlineRoom.create(dbs[0], { ...opts(0), bet: 1000 }), /코인이 부족/);
+  rooms[0] = await OnlineRoom.create(dbs[0], { ...opts(0), bet: 50 });
+  const code = rooms[0].code;
+  for (let i = 1; i < 4; i++) rooms[i] = await OnlineRoom.join(dbs[i], code, opts(i));
+  const bots = rooms.map((r, i) => bot(r, 10 + i));
+  // 각자 50씩 걸었음
+  for (const d of dbs) assert.equal((await d.get(`users/${d.uid}/wallet`)).coins, 100);
+  // 모두 캐릭터를 불러온 뒤 시작, 장착 정보가 모두에게 같음
+  await until(() => bots.every((b) => b.view), 20000, '게임 시작');
+  assert.equal(prepared.length, 4);
+  assert.deepEqual(prepared[1], prepared[3]);
+  assert.ok(bots[0].pub.players.every((p) => p.look && p.look.skin));
+  await until(() => bots.every((b) => b.pub.phase === Phase.OVER), 90000, '게임 종료');
+  await until(() => results.filter(Boolean).length === 4, 10000, '결과');
+  const winSeat = bots[0].pub.winner;
+  const winnerUid = rooms.find((r) => r.seat === winSeat).uid;
+  assert.equal(results[0].winner, winnerUid);
+  await sleep(1500);
+  for (const [i, d] of dbs.entries()) {
+    await ecos[i].reconcile();
+    const coins = (await d.get(`users/${d.uid}/wallet`)).coins;
+    assert.equal(coins, d.uid === winnerUid ? 200 : 100, `P${i} 코인`);
+    assert.equal(await d.get(`users/${d.uid}/pending/${code}`), null);
+  }
+  await Promise.all(rooms.map((r) => r.leave()));
+  ecos.forEach((e) => e.stop());
 });

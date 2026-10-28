@@ -23,8 +23,11 @@ export async function connectFirebase(config, sdk, opts = {}) {
   const app = A.initializeApp(config, opts.appName || '[DEFAULT]');
   const auth = Au.getAuth(app);
   if (opts.emulator) Au.connectAuthEmulator(auth, opts.emulator.authUrl, { disableWarnings: true });
-  // 탭마다 다른 익명 사용자 (같은 탭에서 새로고침하면 그대로 → 같은 자리로 다시 들어올 수 있음)
-  await Au.setPersistence(auth, opts.persistence === 'memory' ? Au.inMemoryPersistence : Au.browserSessionPersistence);
+  // 익명 계정을 이 기기 브라우저에 계속 저장 (코인/보관함이 이 계정에 묶임)
+  // 주의: 같은 기기의 탭들은 같은 사람으로 취급됨. 여러 명 테스트는 다른 기기나 개인정보 보호 창으로
+  const persistence = { memory: Au.inMemoryPersistence, session: Au.browserSessionPersistence }[opts.persistence]
+    || Au.browserLocalPersistence;
+  await Au.setPersistence(auth, persistence);
   const cred = auth.currentUser ? { user: auth.currentUser } : await Au.signInAnonymously(auth);
   const db = D.getDatabase(app);
   if (opts.emulator) D.connectDatabaseEmulator(db, opts.emulator.dbHost, opts.emulator.dbPort);
@@ -34,7 +37,7 @@ export async function connectFirebase(config, sdk, opts = {}) {
     uid: cred.user.uid,
     async get(path) { return (await D.get(r(path))).val(); },
     set(path, value) { return D.set(r(path), value); },
-    update(path, value) { return D.update(r(path), value); },
+    update(path, value) { return D.update(path ? r(path) : D.ref(db), value); },
     remove(path) { return D.remove(r(path)); },
     async push(path, value) { return (await D.push(r(path), value)).key; },
     async transaction(path, fn) {
@@ -50,6 +53,10 @@ export async function connectFirebase(config, sdk, opts = {}) {
     /** 연결될 때마다(재연결 포함) cb(true), 끊기면 cb(false) */
     onConnection(cb) {
       return D.onValue(r('.info/connected'), (s) => cb(s.val() === true));
+    },
+    /** 서버 시각 - 내 기기 시각 (ms) */
+    onServerTimeOffset(cb) {
+      return D.onValue(r('.info/serverTimeOffset'), (s) => cb(s.val() || 0));
     },
     onDisconnectRemove(path) { return D.onDisconnect(r(path)).remove(); },
     cancelOnDisconnect(path) { return D.onDisconnect(r(path)).cancel(); },

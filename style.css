@@ -324,3 +324,122 @@ body:not(.in-game) #bottom { display: none; }
 #lobby-seats li.empty { opacity: 0.5; }
 #lobby-status { margin: 0; text-align: center; opacity: 0.85; }
 .lobby-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+
+/* ---------- 로딩 화면 ---------- */
+.loading-panel { text-align: center; }
+.loading-panel .bar {
+  height: 14px;
+  border-radius: 999px;
+  background: #1e1b19;
+  overflow: hidden;
+}
+#loading-bar {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #ffd54a, #ffb300);
+  transition: width 0.2s;
+}
+#loading-text { margin: 0; opacity: 0.8; font-variant-numeric: tabular-nums; }
+
+/* ---------- 코인 / 시작 화면 위쪽 ---------- */
+.menu-top { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.menu-top .coin-badge { margin-right: auto; }
+.coin-badge {
+  font-weight: 800;
+  font-size: 17px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 213, 74, 0.15);
+  color: #ffd54a;
+  font-variant-numeric: tabular-nums;
+}
+.bet-row { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.bet-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.bet-options button {
+  min-height: 40px;
+  min-width: 52px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 2px solid #555;
+  background: #1e1b19;
+  color: #fff;
+  font-weight: 700;
+}
+.bet-options button.on { border-color: #ffd54a; color: #ffd54a; }
+.lobby-bet { margin: 0; text-align: center; color: #ffd54a; font-weight: 700; }
+.lobby-bet:empty { display: none; }
+
+/* ---------- 상점 / 설정 시트 ---------- */
+.screen.sheet { align-items: stretch; background: rgba(20, 16, 14, 0.75); }
+.wide-panel { width: min(900px, 100%); max-height: 100%; overflow-y: auto; }
+.sheet-head { display: flex; align-items: center; gap: 10px; }
+.sheet-head h2 { margin: 0; flex: 1; font-size: 22px; }
+.small { font-size: 13px; opacity: 0.8; margin: 0; }
+.small:empty { display: none; }
+.warn { color: #ffcc80; margin: 0; }
+.error { color: #ff9a9a; margin: 0; }
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.tabs .tab {
+  flex: none;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: none;
+  background: #1e1b19;
+  color: #ddd;
+  font-weight: 700;
+}
+.tabs .tab.on { background: #ffd54a; color: #1a1a1a; }
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+.grid-title { grid-column: 1 / -1; margin: 6px 0 0; font-size: 16px; }
+.item-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  background: #1e1b19;
+  border: 2px solid var(--rarity, #555);
+}
+.thumb {
+  height: 130px;
+  border-radius: 10px;
+  background: #2a2522;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.thumb canvas { height: 92px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.5); }
+.thumb-initial { font-size: 54px; font-weight: 800; opacity: 0.6; }
+.thumb-icon { font-size: 56px; }
+.item-name { font-weight: 800; font-size: 16px; }
+.item-meta { display: flex; gap: 8px; font-size: 12px; opacity: 0.85; }
+.item-meta .rarity { color: var(--rarity); font-weight: 800; }
+.item-credit { font-size: 12px; opacity: 0.7; }
+.item-btn {
+  margin-top: auto;
+  min-height: 48px;
+  border-radius: 12px;
+  border: none;
+  font-weight: 800;
+  font-size: 16px;
+  background: #e8e8e8;
+  color: #1a1a1a;
+}
+.item-btn.buy { background: #ffd54a; }
+.item-btn.equipped { background: transparent; color: #8fd48f; border: 2px solid #8fd48f; }
+.item-btn:disabled:not(.equipped) { opacity: 0.45; }
+.set-section { border-top: 1px solid #4a4542; padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.set-section h3 { margin: 0; }
+.set-section p { margin: 0; }
+.uid { font-size: 12px; word-break: break-all; opacity: 0.85; -webkit-user-select: text; user-select: text; }
+.credit-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid #3a3532; }
+.credit-name { font-weight: 800; }
+.credit-row a { color: #8fd3ff; font-size: 14px; }

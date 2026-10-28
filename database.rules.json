@@ -1,5 +1,95 @@
 {
   "rules": {
+    "admins": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid && !root.child('admins').exists() && newData.val() === true"
+      }
+    },
+    "config": {
+      ".read": true,
+      ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+    },
+    "shop": {
+      ".read": true,
+      ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+    },
+    "users": {
+      "$uid": {
+        "profile": {
+          ".read": "auth != null",
+          ".write": "auth != null && auth.uid === $uid",
+          "name": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 12"
+          },
+          "equipped": {
+            "$slot": {
+              ".validate": "(newData.isString()) && (root.child('shop/items').child(newData.val()).child('category').val() === $slot) && ((root.child('shop/items').child(newData.val()).child('price').val() === 0) || (root.child('users').child($uid).child('inventory').child(newData.val()).exists()))"
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "wallet": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid && newData.exists()",
+          ".validate": "newData.hasChildren(['coins', 'tx', 'dailyDay', 'bailoutDay', 'aiDay', 'aiCount', 'aiLastAt', 'createdAt']) && root.child('config/economy').exists()",
+          "coins": {
+            ".validate": "(newData.isNumber()) && (newData.val() % 1 === 0) && (newData.val() >= 0) && (((newData.parent().child('tx/type').val() === 'create') && (!data.parent().exists()) && (newData.val() === root.child('config/economy/startCoins').val())) || ((data.parent().exists()) && (((newData.parent().child('tx/type').val() === 'daily') && (newData.parent().child('dailyDay').val() > data.parent().child('dailyDay').val()) && (newData.val() === data.val() + root.child('config/economy/dailyBonus').val())) || ((newData.parent().child('tx/type').val() === 'bailout') && (data.val() < root.child('config/economy/bailoutBelow').val()) && (newData.parent().child('bailoutDay').val() > data.parent().child('bailoutDay').val()) && (newData.val() === data.val() + root.child('config/economy/bailoutAmount').val())) || ((newData.parent().child('tx/type').val() === 'aiWin') && (newData.parent().child('aiLastAt').val() === now) && (now - data.parent().child('aiLastAt').val() >= root.child('config/economy/aiMinIntervalMs').val()) && (newData.parent().child('aiCount').val() <= root.child('config/economy/aiDailyCap').val()) && (((newData.parent().child('aiDay').val() === data.parent().child('aiDay').val()) && (newData.parent().child('aiCount').val() === data.parent().child('aiCount').val() + 1)) || ((newData.parent().child('aiDay').val() > data.parent().child('aiDay').val()) && (newData.parent().child('aiCount').val() === 1))) && (newData.val() === data.val() + root.child('config/economy/aiWinReward').val())) || ((newData.parent().child('tx/type').val() === 'buy') && (root.child('shop/items').child(newData.parent().child('tx/item').val()).child('price').val() > 0) && (!root.child('users').child($uid).child('inventory').child(newData.parent().child('tx/item').val()).exists()) && (newData.parent().parent().parent().parent().child('users').child($uid).child('inventory').child(newData.parent().child('tx/item').val()).val() === true) && (newData.val() === data.val() - root.child('shop/items').child(newData.parent().child('tx/item').val()).child('price').val())) || ((newData.parent().child('tx/type').val() === 'bet') && (root.child('rooms').child(newData.parent().child('tx/room').val()).child('meta/bet').val() > 0) && (root.child('rooms').child(newData.parent().child('tx/room').val()).child('meta/status').val() === 'lobby') && (!root.child('rooms').child(newData.parent().child('tx/room').val()).child('stakes').child($uid).exists()) && (newData.parent().parent().parent().parent().child('rooms').child(newData.parent().child('tx/room').val()).child('stakes').child($uid).val() === root.child('rooms').child(newData.parent().child('tx/room').val()).child('meta/bet').val()) && (newData.val() === data.val() - root.child('rooms').child(newData.parent().child('tx/room').val()).child('meta/bet').val())) || ((newData.parent().child('tx/type').val() === 'refund') && (root.child('rooms').child(newData.parent().child('tx/room').val()).child('stakes').child($uid).exists()) && (!newData.parent().parent().parent().parent().child('rooms').child(newData.parent().child('tx/room').val()).child('stakes').child($uid).exists()) && (newData.val() === data.val() + root.child('rooms').child(newData.parent().child('tx/room').val()).child('stakes').child($uid).val())) || ((newData.parent().child('tx/type').val() === 'payout') && (root.child('rooms').child(newData.parent().child('tx/room').val()).child('result/winner').val() === $uid) && (root.child('rooms').child(newData.parent().child('tx/room').val()).child('stakes').child($uid).exists()) && (!root.child('rooms').child(newData.parent().child('tx/room').val()).child('payouts').child($uid).exists()) && (newData.parent().parent().parent().parent().child('rooms').child(newData.parent().child('tx/room').val()).child('payouts').child($uid).val() === true) && (newData.val() === data.val() + 2 * root.child('rooms').child(newData.parent().child('tx/room').val()).child('stakes').child($uid).val())))))"
+          },
+          "tx": {
+            ".validate": "newData.hasChildren(['type'])",
+            "type": {
+              ".validate": "newData.isString() && newData.val().matches(/^(create|daily|bailout|aiWin|buy|bet|refund|payout|name)$/)"
+            },
+            "item": {
+              ".validate": "newData.isString() && newData.val().length <= 64"
+            },
+            "room": {
+              ".validate": "newData.isString() && newData.val().length <= 16"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "dailyDay": {
+            ".validate": "(newData.isNumber()) && (newData.val() % 1 === 0) && ((newData.val() === data.val()) || (newData.parent().child('tx/type').val() === 'create' && newData.val() === 0) || ((newData.parent().child('tx/type').val() === 'daily') && (newData.val() > data.val()) && ((newData.val()) * 86400000 - root.child('config/economy/dayOffsetMs').val() <= now && ((newData.val()) + 1) * 86400000 - root.child('config/economy/dayOffsetMs').val() > now)))"
+          },
+          "bailoutDay": {
+            ".validate": "(newData.isNumber()) && (newData.val() % 1 === 0) && ((newData.val() === data.val()) || (newData.parent().child('tx/type').val() === 'create' && newData.val() === 0) || ((newData.parent().child('tx/type').val() === 'bailout') && (newData.val() > data.val()) && ((newData.val()) * 86400000 - root.child('config/economy/dayOffsetMs').val() <= now && ((newData.val()) + 1) * 86400000 - root.child('config/economy/dayOffsetMs').val() > now)))"
+          },
+          "aiDay": {
+            ".validate": "(newData.isNumber()) && (newData.val() % 1 === 0) && ((newData.val() === data.val()) || (newData.parent().child('tx/type').val() === 'create' && newData.val() === 0) || ((newData.parent().child('tx/type').val() === 'aiWin') && (newData.val() > data.val()) && ((newData.val()) * 86400000 - root.child('config/economy/dayOffsetMs').val() <= now && ((newData.val()) + 1) * 86400000 - root.child('config/economy/dayOffsetMs').val() > now)))"
+          },
+          "aiCount": {
+            ".validate": "(newData.isNumber()) && ((newData.parent().child('tx/type').val() === 'create' && newData.val() === 0) || (newData.val() === data.val()) || ((newData.parent().child('aiDay').val() > data.parent().child('aiDay').val()) && (newData.val() === 1)) || ((newData.parent().child('aiDay').val() === data.parent().child('aiDay').val()) && (newData.val() === data.val() + 1)))"
+          },
+          "aiLastAt": {
+            ".validate": "(newData.isNumber()) && ((newData.parent().child('tx/type').val() === 'create' && newData.val() === 0) || (newData.val() === data.val()) || (newData.val() === now))"
+          },
+          "createdAt": {
+            ".validate": "(newData.parent().child('tx/type').val() === 'create' && newData.val() === now) || (newData.val() === data.val())"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "inventory": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$item": {
+            ".write": "(auth != null && auth.uid === $uid) && (!data.exists()) && (newData.val() === true) && (newData.parent().parent().child('wallet/tx/type').val() === 'buy') && (newData.parent().parent().child('wallet/tx/item').val() === $item) && (root.child('shop/items').child($item).child('price').val() > 0) && (newData.parent().parent().child('wallet/coins').val() === data.parent().parent().child('wallet/coins').val() - root.child('shop/items').child($item).child('price').val())"
+          }
+        },
+        "pending": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$code": {
+            ".write": "auth != null && auth.uid === $uid",
+            ".validate": "newData.val() === true"
+          }
+        }
+      }
+    },
     "rooms": {
       "$code": {
         "meta": {
@@ -13,13 +103,19 @@
           },
           "createdAt": {
             ".write": "auth != null && newData.parent().child('host').val() === auth.uid"
+          },
+          "bet": {
+            ".write": "auth != null && !data.exists() && newData.parent().child('host').val() === auth.uid",
+            ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 0 && newData.val() <= 1000000"
           }
         },
         "seats": {
           ".read": "auth != null",
           "$seat": {
             ".write": "auth != null && ($seat === '0' || $seat === '1' || $seat === '2' || $seat === '3') && (root.child('rooms').child($code).child('meta/host').val() === auth.uid || (root.child('rooms').child($code).child('meta/status').val() === 'lobby' && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.child('uid').val() === auth.uid && !newData.exists()))))",
-            "name": { ".validate": "newData.isString() && newData.val().length <= 20" }
+            "name": {
+              ".validate": "newData.isString() && newData.val().length <= 20"
+            }
           }
         },
         "members": {
@@ -52,6 +148,33 @@
           ".read": "auth != null && root.child('rooms').child($code).child('meta/host').val() === auth.uid",
           "$id": {
             ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid && root.child('rooms').child($code).child('members').child(auth.uid).exists()) || (!newData.exists() && root.child('rooms').child($code).child('meta/host').val() === auth.uid))"
+          }
+        },
+        "stakes": {
+          ".read": "auth != null",
+          "$uid": {
+            ".write": "(auth != null && auth.uid === $uid) && (((!data.exists()) && (root.child('rooms').child($code).child('meta/status').val() === 'lobby') && (newData.val() === root.child('rooms').child($code).child('meta/bet').val()) && (newData.parent().parent().parent().parent().child('users').child($uid).child('wallet').child('tx/type').val() === 'bet') && (newData.parent().parent().parent().parent().child('users').child($uid).child('wallet').child('tx/room').val() === $code) && (newData.parent().parent().parent().parent().child('users').child($uid).child('wallet').child('coins').val() === root.child('users').child($uid).child('wallet').child('coins').val() - newData.val())) || ((data.exists()) && (!newData.exists()) && ((root.child('rooms').child($code).child('meta/status').val() === 'lobby') || (root.child('rooms').child($code).child('seats/0/uid').val() !== auth.uid && root.child('rooms').child($code).child('seats/1/uid').val() !== auth.uid && root.child('rooms').child($code).child('seats/2/uid').val() !== auth.uid && root.child('rooms').child($code).child('seats/3/uid').val() !== auth.uid)) && (newData.parent().parent().parent().parent().child('users').child($uid).child('wallet').child('tx/type').val() === 'refund') && (newData.parent().parent().parent().parent().child('users').child($uid).child('wallet').child('tx/room').val() === $code) && (newData.parent().parent().parent().parent().child('users').child($uid).child('wallet').child('coins').val() === root.child('users').child($uid).child('wallet').child('coins').val() + data.val())))"
+          }
+        },
+        "payouts": {
+          ".read": "auth != null",
+          "$uid": {
+            ".write": "(auth != null && auth.uid === $uid) && (!data.exists()) && (newData.val() === true) && (root.child('rooms').child($code).child('result/winner').val() === $uid) && (newData.parent().parent().parent().parent().child('users').child($uid).child('wallet').child('tx/type').val() === 'payout') && (newData.parent().parent().parent().parent().child('users').child($uid).child('wallet').child('tx/room').val() === $code)"
+          }
+        },
+        "result": {
+          ".read": "auth != null",
+          ".write": "auth != null && root.child('rooms').child($code).child('meta/host').val() === auth.uid && !data.exists() && root.child('rooms').child($code).child('meta/status').val() === 'playing'",
+          ".validate": "newData.hasChildren(['winner']) && newData.child('winner').isString()"
+        },
+        "looks": {
+          ".read": "auth != null",
+          ".write": "auth != null && root.child('rooms').child($code).child('meta/host').val() === auth.uid"
+        },
+        "ready": {
+          ".read": "auth != null",
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
           }
         }
       }

@@ -9,13 +9,21 @@
 //   private/{uid}: {json}   그 사람 타일의 숫자 (본인만 읽기 가능)      — 방장만 씀
 //   secret: {json}          방장 교체 때 이어서 하기 위한 전체 상태 (방장만 읽기 가능)
 //   actions/{id}: {uid, step, action}   플레이어 행동 → 방장이 처리 후 삭제
+//   meta/bet                방 베팅액 (방 만들 때 한 번 정함)
+//   stakes/{uid}: 베팅액     각자 건 코인 (지갑 차감과 같은 쓰기에서만 생김 — 보안 규칙)
+//   looks/{자리}: 장착 정보   그 판에 각자 장착한 스킨/타일/이펙트 (방장이 프로필에서 읽어 씀)
+//   ready/{uid}: true        캐릭터 불러오기를 마침 (방장은 모두 준비되면 시작)
+//   result: {winner: uid}    1등 (방장이 한 번 씀, 상금 기준)
 import { HostEngine, DEFAULT_DELAYS } from './engine.js';
+import { normalizeLook, randomAiLook } from './catalog.js';
 
 export const SEAT_COUNT = 4;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const LOBBY_GRACE = 5000;   // 대기실에서 연결이 이만큼 끊기면 자리 비움
 const GAME_GRACE = 3000;    // 게임 중 연결이 이만큼 끊기면 AI가 대신함
 const HOST_GRACE = 4000;    // 방장 연결이 이만큼 끊기면 다른 사람이 방장을 맡음
+const READY_WAIT = 25000;   // 캐릭터 불러오기를 최대 이만큼 기다림
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function randomCode(len = 5) {
   let s = '';
@@ -37,17 +45,31 @@ export class OnlineRoom {
   /**
    * @param {ReturnType<typeof import('./net/firebase.js').connectFirebase> extends Promise<infer T> ? T : never} db
    * @param {string} code
-   * @param {{name: string, delays?: object, onLobby?: Function, onGame?: Function, onError?: Function}} opts
+   * @param {object} opts
+   * @param {string} opts.name
+   * @param {import('./economy.js').Economy} [opts.economy] 베팅이 있는 방에 필요
+   * @param {number} [opts.bet] 방 만들 때 베팅액
+   * @param {(looks: object[], mySeat: number) => Promise<void>} [opts.onPrepare] 게임 시작 전 캐릭터 불러오기
+   * @param {(result: {winner: string}) => void} [opts.onResult]
    */
   constructor(db, code, opts) {
     this.db = db;
     this.code = code;
     this.base = `rooms/${code}`;
     this.name = opts.name;
+    this.economy = opts.economy || null;
     this.delays = opts.delays || DEFAULT_DELAYS;
     this.onLobby = opts.onLobby || (() => {});
     this.onGame = opts.onGame || (() => {});
+    this.onPrepare = opts.onPrepare || (async () => {});
+    this.onResult = opts.onResult || (() => {});
     this.onError = opts.onError || ((e) => console.error(e));
+    this.stakes = {};
+    this.looks = null;
+    this.ready = {};
+    this.result = null;
+    this.prepared = false;
+    this.preparing = false;
     this.seat = null;
     this.meta = null;
     this.seats = seatsArray(null);
@@ -67,6 +89,8 @@ export class OnlineRoom {
   get uid() { return this.db.uid; }
 
   static async create(db, opts) {
+    const bet = opts.bet || 0;
+    OnlineRoom._checkCoins(opts.economy, bet);
     for (let tries = 0; tries < 10; tries++) {
       const code = randomCode();
       let res;
@@ -76,9 +100,9 @@ export class OnlineRoom {
         continue; // 이미 있는 방 코드
       }
       if (!res.committed || res.value !== db.uid) continue;
-      await db.update(`rooms/${code}/meta`, { status: 'lobby', createdAt: db.serverTime() });
+      await db.update(`rooms/${code}/meta`, { status: 'lobby', createdAt: db.serverTime(), bet });
       const room = new OnlineRoom(db, code, opts);
-      room.meta = { host: db.uid, status: 'lobby' };
+      room.meta = { host: db.uid, status: 'lobby', bet };
       await room._claimSeat();
       await room._enter();
       return room;
@@ -98,24 +122,43 @@ export class OnlineRoom {
       room.seat = Number(mine); // 같은 탭에서 다시 들어옴 → 원래 자리
     } else {
       if (meta.status !== 'lobby') throw new Error('이미 게임이 시작된 방이에요.');
+      OnlineRoom._checkCoins(opts.economy, meta.bet || 0);
       await room._claimSeat();
     }
     await room._enter();
     return room;
   }
 
+  static _checkCoins(economy, bet) {
+    if (bet <= 0) return;
+    if (!economy || !economy.ready) throw new Error('베팅이 있는 방은 코인 지갑이 필요해요.');
+    if (economy.coins < bet) throw new Error(`코인이 부족해요 (베팅 ${bet}, 내 코인 ${economy.coins})`);
+  }
+
+  get bet() { return (this.meta && this.meta.bet) || 0; }
+
   async _claimSeat() {
     for (let i = 0; i < SEAT_COUNT; i++) {
+      let claimed = false;
       try {
         const res = await this.db.transaction(`${this.base}/seats/${i}`,
           (cur) => (cur === null ? { uid: this.uid, name: this.name } : undefined));
-        if (res.committed && res.value && res.value.uid === this.uid) {
-          await this.db.set(`${this.base}/members/${this.uid}`, String(i));
-          this.seat = i;
-          return;
-        }
+        claimed = res.committed && res.value && res.value.uid === this.uid;
       } catch {
         // 권한 없음(이미 시작함 등) → 다음 자리
+      }
+      if (!claimed) continue;
+      try {
+        await this.db.set(`${this.base}/members/${this.uid}`, String(i));
+        this.seat = i;
+        if (this.bet > 0) await this.economy.stake(this.code, this.bet); // 자리에 앉으면서 베팅
+        return;
+      } catch (e) {
+        // 베팅 실패 등 → 자리 돌려놓기
+        await this.db.remove(`${this.base}/members/${this.uid}`).catch(() => {});
+        await this.db.remove(`${this.base}/seats/${i}`).catch(() => {});
+        this.seat = null;
+        throw e;
       }
     }
     throw new Error('방이 가득 찼어요.');
@@ -148,6 +191,13 @@ export class OnlineRoom {
       this.priv = v && v.json ? JSON.parse(v.json) : null;
       this.notify();
     }, err));
+    this.unsubs.push(db.on(`${base}/stakes`, (v) => { this.stakes = v || {}; this._evaluate(); this.notify(); }, err));
+    this.unsubs.push(db.on(`${base}/looks`, (v) => { this.looks = v ? seatsArray(v) : null; this.notify(); }, err));
+    this.unsubs.push(db.on(`${base}/ready`, (v) => { this.ready = v || {}; }, err));
+    this.unsubs.push(db.on(`${base}/result`, (v) => {
+      this.result = v;
+      if (v) this.onResult(v);
+    }, err));
     this.ticker = setInterval(() => this._evaluate(), 1000);
   }
 
@@ -162,6 +212,7 @@ export class OnlineRoom {
     const { db, base, uid } = this;
     try {
       if (this.meta && this.meta.status === 'lobby' && this.seat !== null) {
+        if (this.bet > 0 && this.economy) await this.economy.refund(this.code).catch((e) => console.warn(e));
         await db.remove(`${base}/seats/${this.seat}`);
         await db.remove(`${base}/members/${uid}`);
       }
@@ -177,7 +228,22 @@ export class OnlineRoom {
 
   notify() {
     if (this.closed) return;
-    if (this.status && this.status !== 'lobby' && this.pub) {
+    // 게임이 시작되면(장착 정보가 정해지면) 먼저 캐릭터를 불러오고 준비 완료를 알림
+    if (this.status && this.status !== 'lobby' && this.looks && !this.prepared) {
+      if (!this.preparing) {
+        this.preparing = true;
+        Promise.resolve(this.onPrepare(this.looks, this.seat))
+          .catch((e) => console.warn('불러오기 실패', e))
+          .then(() => {
+            this.prepared = true;
+            if (this.closed) return;
+            this.db.set(`${this.base}/ready/${this.uid}`, true).catch(() => {});
+            this.notify();
+          });
+      }
+      return;
+    }
+    if (this.status && this.status !== 'lobby' && this.pub && this.prepared) {
       // 공개 상태와 내 비공개 상태가 같은 단계일 때만 그림 (한쪽만 먼저 도착한 순간은 건너뜀)
       const priv = this.priv && this.priv.gameId === this.pub.gameId && this.priv.step === this.pub.step ? this.priv : null;
       if (!priv && this.pub.phase !== 'over') return;
@@ -185,7 +251,10 @@ export class OnlineRoom {
     } else {
       this.onLobby({
         code: this.code,
-        seats: this.seats.map((s) => (s ? { name: s.name, ai: !!s.ai, online: !!(s.uid && this.presence[s.uid]) } : null)),
+        seats: this.seats.map((s) => (s ? {
+          name: s.name, ai: !!s.ai, online: !!(s.uid && this.presence[s.uid]), staked: !!(s.uid && this.stakes[s.uid]),
+        } : null)),
+        bet: this.bet,
         mySeat: this.seat,
         isHost: this.isHost,
         status: this.status,
@@ -253,6 +322,8 @@ export class OnlineRoom {
     } finally {
       this.busy = false;
     }
+    // 시작 직전(불러오기 대기 중)에 방장이 바뀐 경우: 이어서 시작
+    if (!this.engine && this.status === 'playing') this._launch().catch((e) => this.onError(e));
     this._hostDuties();
   }
 
@@ -275,15 +346,33 @@ export class OnlineRoom {
           db.remove(`${base}/members/${s.uid}`).catch(() => {});
         }
       });
-      // 4자리가 모두 차고, 모두 접속 표시까지 마친 뒤 시작 (접속 표시는 멤버 등록 뒤에 하므로 등록도 끝난 상태)
-      if (this.seats.every((s) => s && (s.ai || this.presence[s.uid]))) this.startGame();
+      // 4자리가 모두 차고, 모두 접속 표시와 베팅까지 마친 뒤 시작
+      if (this.seats.every((s) => s && (s.ai || this.presence[s.uid])) && this._allStaked()) this.startGame();
       return;
     }
     if (this.engine) {
       this._syncSeatsToEngine();
-      if (this.engine.game.phase === 'over' && this.status !== 'over') {
-        db.set(`${base}/meta/status`, 'over').catch(() => {});
-      }
+      if (this.engine.game.phase === 'over' && this.status !== 'over' && !this.finishing) this._finish();
+    }
+  }
+
+  _allStaked() {
+    return this.bet <= 0 || this.seats.every((s) => !s || s.ai || this.stakes[s.uid]);
+  }
+
+  // 결과(1등 uid)를 먼저 쓰고 상태를 over로 (승자는 결과를 보고 상금을 받음)
+  async _finish() {
+    this.finishing = true;
+    const { db, base } = this;
+    try {
+      const w = this.engine.game.winner;
+      const seat = w === null || w === undefined ? null : this.seats[w];
+      const existing = await db.get(`${base}/result`);
+      if (!existing) await db.set(`${base}/result`, { winner: (seat && seat.uid) || '', at: db.serverTime() });
+      await db.set(`${base}/meta/status`, 'over');
+    } catch (e) {
+      this.onError(e);
+      this.finishing = false;
     }
   }
 
@@ -302,9 +391,14 @@ export class OnlineRoom {
     });
   }
 
-  /** 방장: 게임 시작 (빈 자리는 AI로 채움) */
+  /**
+   * 방장: 게임 시작 (빈 자리는 AI로 채움)
+   * 장착 정보(looks)를 정하고 상태를 playing으로 → 모두 캐릭터를 불러오면(ready) 엔진 시작
+   * @returns {Promise<string|null>} 시작할 수 없으면 이유
+   */
   async startGame() {
-    if (!this.isHost || this.engine || this.busy || this.status !== 'lobby') return;
+    if (!this.isHost || this.engine || this.busy || this.status !== 'lobby') return null;
+    if (!this._allStaked()) return '아직 베팅을 처리 중인 사람이 있어요';
     this.busy = true;
     try {
       const { db, base } = this;
@@ -312,19 +406,49 @@ export class OnlineRoom {
       this.seats.forEach((s, i) => { if (!s) fill[i] = { ai: true, name: `AI ${i + 1}` }; });
       if (Object.keys(fill).length) await db.update(`${base}/seats`, fill);
       this.seats = this.seats.map((s, i) => s || fill[i]);
+      const looks = {};
+      await Promise.all(this.seats.map(async (s, i) => {
+        if (s.ai) { looks[i] = randomAiLook(); return; }
+        const eq = await db.get(`users/${s.uid}/profile/equipped`).catch(() => null);
+        looks[i] = normalizeLook(eq); // 프로필의 장착 정보는 보안 규칙이 "가진 아이템만" 검사함
+      }));
+      await db.set(`${base}/looks`, looks);
+      this.looks = seatsArray(looks);
+      await db.set(`${base}/meta/status`, 'playing');
+      this.busy = false;
+      await this._launch();
+    } catch (e) {
+      this.onError(e);
+    } finally {
+      this.busy = false;
+    }
+    return null;
+  }
+
+  // 모두 캐릭터를 불러왔거나(ready) 시간이 지나면 엔진 시작
+  async _launch() {
+    if (this.engine || this.launching) return;
+    this.launching = true;
+    try {
+      const end = Date.now() + READY_WAIT;
+      while (Date.now() < end && !this.closed && this.isHost) {
+        const waiting = this.seats.some((s) => s && s.uid && this.presence[s.uid] && !this.ready[s.uid]);
+        if (!waiting) break;
+        await sleep(300);
+      }
+      if (this.closed || !this.isHost || this.engine) return;
+      if (!this.looks) this.looks = seatsArray(await this.db.get(`${this.base}/looks`));
       this.engine = HostEngine.newGame({
-        seats: this.seats.map((s) => ({ name: s.name, kind: s.ai ? 'ai' : 'human' })),
+        seats: this.seats.map((s, i) => ({ name: s.name, kind: s.ai ? 'ai' : 'human', look: (this.looks && this.looks[i]) || null })),
         firstPlayer: Math.floor(Math.random() * SEAT_COUNT),
         delays: this.delays,
         onPublish: (out) => this._hostPublish(out),
       });
       this._listenActions();
-      this.engine.start(); // 첫 상태(공개/비공개/secret)를 먼저 올리고
-      await db.set(`${base}/meta/status`, 'playing'); // 그다음 시작을 알림
-    } catch (e) {
-      this.onError(e);
+      this._syncSeatsToEngine();
+      this.engine.start();
     } finally {
-      this.busy = false;
+      this.launching = false;
     }
   }
 

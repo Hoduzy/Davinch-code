@@ -25,12 +25,12 @@ export class HostEngine {
   /**
    * @param {object} opts
    * @param {Game} opts.game
-   * @param {{name: string, kind: 'human'|'ai', offline?: boolean}[]} opts.seats
+   * @param {{name: string, kind: 'human'|'ai', offline?: boolean, look?: object}[]} opts.seats  look: 장착 아이템 (모두에게 보임)
    * @param {(out: {public: object, privates: object[], secret: object}) => void} opts.onPublish
    */
   constructor({ game, seats, onPublish, delays = DEFAULT_DELAYS, rng = Math.random, step = 0, gameId }) {
     this.game = game;
-    this.seats = seats.map((s) => ({ name: s.name, kind: s.kind, offline: !!s.offline }));
+    this.seats = seats.map((s) => ({ name: s.name, kind: s.kind, offline: !!s.offline, look: s.look || null }));
     this.onPublish = onPublish;
     this.delays = delays;
     this.rng = rng;
@@ -134,6 +134,7 @@ export class HostEngine {
         name: this.seats[i].name,
         kind: this.seats[i].kind,
         offline: this.seats[i].offline,
+        look: this.seats[i].look,
         eliminated: p.eliminated,
         hand: p.hand.map((t) => publicTile(t, over)),
       })),

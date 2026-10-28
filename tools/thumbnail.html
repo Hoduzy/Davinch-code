@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>스킨 썸네일 만들기</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../vendor/three.module.js",
+        "three/addons/": "../vendor/",
+        "@pixiv/three-vrm": "../vendor/three-vrm.module.min.js"
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; padding: 16px; font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; background: #2a2320; color: #fff; }
+    h1 { font-size: 20px; }
+    input { font-size: 16px; padding: 8px; width: min(420px, 100%); }
+    button, a.btn { font-size: 16px; padding: 10px 16px; border-radius: 10px; border: none; background: #ffd54a; color: #1a1a1a; font-weight: 700; text-decoration: none; display: inline-block; margin: 8px 8px 0 0; }
+    canvas { display: block; margin-top: 12px; width: 256px; height: 256px; border-radius: 12px; }
+    p { opacity: 0.85; }
+  </style>
+</head>
+<body>
+  <h1>스킨 썸네일 만들기</h1>
+  <p>VRM 파일 경로를 넣고 <b>만들기</b> → <b>PNG 저장</b>. 저장한 이미지를 <code>assets/characters/thumbs/</code>에 넣고 items.config.js의 thumbnail에 경로를 적으세요.</p>
+  <input id="file" value="assets/characters/shinku.vrm">
+  <div>
+    <button id="make">만들기</button>
+    <a id="save" class="btn" download="thumbnail.png" hidden>PNG 저장</a>
+  </div>
+  <p id="msg"></p>
+  <canvas id="c" width="512" height="512"></canvas>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+    const $ = (id) => document.getElementById(id);
+    const q = new URLSearchParams(location.search).get('file');
+    if (q) $('file').value = q;
+
+    const renderer = new THREE.WebGLRenderer({ canvas: $('c'), antialias: true, preserveDrawingBuffer: true, alpha: true });
+    renderer.setSize(512, 512, false);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    async function make() {
+      const file = $('file').value.trim();
+      $('msg').textContent = '불러오는 중…';
+      $('save').hidden = true;
+      const loader = new GLTFLoader();
+      loader.register((p) => new VRMLoaderPlugin(p));
+      const gltf = await loader.loadAsync(`../${file}`);
+      const vrm = gltf.userData.vrm;
+      VRMUtils.removeUnnecessaryVertices(vrm.scene);
+      const scene = new THREE.Scene();
+      const bg = document.createElement('canvas');
+      bg.width = bg.height = 256;
+      const g = bg.getContext('2d');
+      const grad = g.createRadialGradient(128, 110, 10, 128, 128, 180);
+      grad.addColorStop(0, '#5a4b40');
+      grad.addColorStop(1, '#221c18');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 256, 256);
+      scene.background = new THREE.CanvasTexture(bg);
+      scene.background.colorSpace = THREE.SRGBColorSpace;
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.6));
+      const key = new THREE.DirectionalLight(0xffffff, 1.6);
+      key.position.set(0.5, 1.5, 2);
+      scene.add(key);
+
+      const v0 = vrm.meta && vrm.meta.metaVersion === '0';
+      const holder = new THREE.Group();
+      holder.rotation.y = v0 ? Math.PI : 0; // 카메라(+Z)를 바라보게
+      holder.add(vrm.scene);
+      scene.add(holder);
+      const side = v0 ? -1 : 1;
+      const bone = (n) => vrm.humanoid.getNormalizedBoneNode(n);
+      if (bone('leftUpperArm')) bone('leftUpperArm').rotation.z = -side * 1.2;
+      if (bone('rightUpperArm')) bone('rightUpperArm').rotation.z = side * 1.2;
+      if (vrm.expressionManager) vrm.expressionManager.setValue('happy', 0.6);
+      vrm.update(0);
+      vrm.scene.updateMatrixWorld(true);
+      const head = bone('head').getWorldPosition(new THREE.Vector3());
+      const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 20);
+      camera.position.set(0, head.y + 0.1, 1.25);
+      camera.lookAt(0, head.y + 0.02, 0);
+      vrm.update(0.016);
+      renderer.render(scene, camera);
+      const url = $('c').toDataURL('image/png');
+      const name = file.split('/').pop().replace(/\.vrm$/i, '.png');
+      $('save').href = url;
+      $('save').download = name;
+      $('save').hidden = false;
+      $('msg').textContent = `완성: ${name}`;
+      window.__thumb = url;
+    }
+
+    $('make').addEventListener('click', () => make().catch((e) => { $('msg').textContent = `실패: ${e.message}`; }));
+    if (q) make().catch((e) => { $('msg').textContent = `실패: ${e.message}`; window.__thumbError = e.message; });
+  </script>
+</body>
+</html>

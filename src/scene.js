@@ -1,7 +1,10 @@
-// 3D 화면: 테이블, 타일, 카메라(고개 돌리기), 터치 선택
+// 3D 화면: 테이블, 타일, 상대 캐릭터, 이펙트, 카메라(고개 돌리기), 터치 선택
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/RoundedBoxGeometry.js';
-import { JOKER } from './game.js';
+import { drawTileFace } from './tile-art.js';
+import { Effects } from './effects.js';
+import { BasicCharacter } from './characters.js';
+import { getItem, defaultItem } from './catalog.js';
 
 const TILE_W = 0.15;
 const TILE_H = 0.21;
@@ -16,9 +19,7 @@ const DEFAULT_PITCH = -0.5;
 // 플레이어 인덱스 → 자리 각도 (0: 나, 1: 왼쪽, 2: 앞, 3: 오른쪽)
 const SEAT_ANGLES = [0, -Math.PI / 2, Math.PI, Math.PI / 2];
 const AVATAR_COLORS = [0x000000, 0xe57373, 0x64b5f6, 0x81c784];
-
-const COLOR_BODY = { black: 0x1c1c22, white: 0xf1ede2 };
-const COLOR_INK = { black: '#f5f1e6', white: '#17171c' };
+const SEAT_DIST = 1.75; // 테이블 중심 ~ 상대 캐릭터(의자) 거리
 
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
@@ -112,35 +113,39 @@ export class TableScene {
     this.turnStrip.position.y = 0.002;
     s.add(this.turnStrip);
 
-    // 상대 3명
-    this.avatars = [];
+    // 상대 3명 자리: 의자 + 캐릭터 + 테이블 위 이름표
+    this.seats = [];
+    const chairMat = new THREE.MeshStandardMaterial({ color: 0x4e342e, roughness: 0.7 });
     for (let seat = 1; seat < 4; seat++) {
       const g = new THREE.Group();
-      const mat = new THREE.MeshStandardMaterial({ color: AVATAR_COLORS[seat], roughness: 0.7 });
-      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.4, 6, 16), mat);
-      body.position.y = 0.02;
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 24, 16),
-        new THREE.MeshStandardMaterial({ color: 0xf0c9a0, roughness: 0.8 }));
-      head.position.y = 0.55;
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
-      for (const dx of [-0.06, 0.06]) {
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), eyeMat);
-        eye.position.set(dx, 0.58, -0.15);
-        g.add(eye);
-      }
-      g.add(body, head);
-      const label = new THREE.Sprite(new THREE.SpriteMaterial({ depthTest: false }));
-      label.position.set(0, 0.3, -0.32);
-      label.scale.set(0.48, 0.12, 1);
-      label.renderOrder = 10;
-      g.add(label);
       const q = seatQuat(seat);
-      g.position.copy(new THREE.Vector3(0, 0, 1.75).applyQuaternion(q));
+      g.position.copy(new THREE.Vector3(0, 0, SEAT_DIST).applyQuaternion(q));
       g.quaternion.copy(q);
-      g.scale.setScalar(0.85);
+      const chair = new THREE.Group();
+      const seatBox = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.46), chairMat);
+      seatBox.position.set(0, -0.255, 0.06);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.05), chairMat);
+      back.position.set(0, 0.05, 0.3);
+      chair.add(seatBox, back);
+      for (const [lx, lz] of [[-0.21, -0.14], [0.21, -0.14], [-0.21, 0.27], [0.21, 0.27]]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.5, 0.04), chairMat);
+        leg.position.set(lx, -0.53, lz);
+        chair.add(leg);
+      }
+      chair.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      g.add(chair);
+      const label = new THREE.Sprite(new THREE.SpriteMaterial({ depthTest: false }));
+      label.position.set(0, 0.13, -0.36); // 테이블 가장자리 위 이름표
+      label.scale.set(0.44, 0.11, 1);
+      label.renderOrder = 10;
+      label.visible = false; // 이름이 정해지면 보임
+      g.add(label);
       s.add(g);
-      this.avatars[seat] = { group: g, label, key: '' };
+      const character = new BasicCharacter(AVATAR_COLORS[seat]);
+      g.add(character.root);
+      this.seats[seat] = { group: g, label, key: '', character };
     }
+    this.effects = new Effects(s);
 
     this.tileGeo = new RoundedBoxGeometry(TILE_W, TILE_H, TILE_D, 3, 0.014);
     this.faceGeo = new THREE.PlaneGeometry(TILE_W * 0.84, TILE_H * 0.86);
@@ -164,26 +169,12 @@ export class TableScene {
     return t;
   }
 
-  _faceTexture(color, value) {
-    const key = `${color}:${value}`;
+  _faceTexture(styleItem, color, value) {
+    const key = `${styleItem.id}:${color}:${value}`;
     if (this.faceTextures.has(key)) return this.faceTextures.get(key);
     const c = document.createElement('canvas');
     c.width = 128; c.height = 184;
-    const x = c.getContext('2d');
-    x.fillStyle = color === 'black' ? '#1c1c22' : '#f1ede2';
-    x.fillRect(0, 0, c.width, c.height);
-    x.fillStyle = COLOR_INK[color];
-    x.textAlign = 'center';
-    x.textBaseline = 'middle';
-    if (value === JOKER) {
-      x.fillRect(22, 84, 84, 16);
-      x.font = 'bold 22px sans-serif';
-      x.fillText('JOKER', 64, 150);
-    } else {
-      x.font = `bold ${value >= 10 ? 84 : 112}px -apple-system, "Helvetica Neue", Arial, sans-serif`;
-      x.fillText(String(value), 64, 92);
-      if (value === 6 || value === 9) x.fillRect(40, 150, 48, 8);
-    }
+    drawTileFace(c.getContext('2d'), c.width, c.height, styleItem.style, color, value);
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = 4;
@@ -214,27 +205,114 @@ export class TableScene {
     });
 
     for (const t of game.tiles) {
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: COLOR_BODY[t.color], roughness: 0.35, metalness: 0.05, emissive: 0x000000,
-      });
+      const bodyMat = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.05, emissive: 0x000000 });
       const mesh = new THREE.Mesh(this.tileGeo, bodyMat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       const p = this.pilePos.get(t.id);
       mesh.position.copy(p.pos);
       mesh.quaternion.copy(p.quat);
-      mesh.userData = { tileId: t.id, bodyMat, face: null, tween: null, targetKey: '', state: 'pile' };
+      mesh.userData = { tileId: t.id, bodyMat, face: null, faceKey: '', styleId: '', tween: null, targetKey: '', state: 'pile' };
+      this._applyStyle(mesh, t, this._styleFor(null));
       this.scene.add(mesh);
       this.tileMeshes.set(t.id, mesh);
     }
     this.yawTarget = 0;
+    this.effects.clear();
+  }
+
+  // ---------- 장착 아이템 (타일 디자인 / 캐릭터 / 이펙트) ----------
+  /** 플레이어별 장착 정보 [{skin, tile, effectCorrect, effectWin}] (플레이어 번호 순) */
+  setLooks(looks) {
+    this.looks = looks || [];
+  }
+
+  _styleFor(ownerId) {
+    const look = ownerId === null || ownerId === undefined ? null : this.looks && this.looks[ownerId];
+    const it = look && getItem(look.tile);
+    return it && it.category === 'tile' ? it : defaultItem('tile');
+  }
+
+  _applyStyle(mesh, tile, styleItem) {
+    const ud = mesh.userData;
+    if (ud.styleId === styleItem.id) return;
+    ud.styleId = styleItem.id;
+    const st = styleItem.style;
+    ud.bodyMat.color.set(st[tile.color].body);
+    ud.bodyMat.metalness = st.metal ? 0.55 : 0.05;
+    ud.bodyMat.roughness = st.metal ? 0.3 : 0.35;
+    if (ud.face) this._setFace(mesh, tile, false); // 다음 _setFace에서 새 디자인으로
+  }
+
+  /** 상대 자리에 캐릭터 놓기. characters[playerId] (내 자리는 무시) */
+  setCharacters(characters, humanId) {
+    const n = 4;
+    for (let seat = 1; seat < 4; seat++) {
+      const pid = (humanId + seat) % n;
+      const slot = this.seats[seat];
+      const next = characters[pid] || new BasicCharacter(AVATAR_COLORS[seat]);
+      if (slot.character === next) continue;
+      slot.group.remove(slot.character.root);
+      slot.character.dispose();
+      slot.character = next;
+      slot.group.add(next.root);
+    }
+  }
+
+  _seatOfPlayer(pid) {
+    const n = 4;
+    return ((pid - (this.humanId || 0)) % n + n) % n;
+  }
+
+  /** 캐릭터 반응: 'correct' | 'wrong' | 'hit' | 'dodge' | 'win' | 'lose' */
+  react(pid, kind) {
+    const seat = this._seatOfPlayer(pid);
+    if (seat === 0) return;
+    this.seats[seat].character.react(kind);
+  }
+
+  setOut(pid, out) {
+    const seat = this._seatOfPlayer(pid);
+    if (seat !== 0) this.seats[seat].character.setOut(out);
+  }
+
+  /** 이펙트 재생. fxItemId: items.config.js의 이펙트 id */
+  playEffect(fxItemId, kind, { tileId = null, pid = null } = {}) {
+    const it = getItem(fxItemId) || defaultItem(kind);
+    if (!it || !it.effect) return;
+    let at;
+    if (tileId !== null && this.tileMeshes.has(tileId)) {
+      at = this.tileMeshes.get(tileId).position.clone().add(new THREE.Vector3(0, 0.12, 0));
+    } else if (pid !== null) {
+      const seat = this._seatOfPlayer(pid);
+      at = new THREE.Vector3(0, 0.25, seat === 0 ? ROW_R - 0.3 : SEAT_DIST - 0.3).applyQuaternion(seatQuat(seat));
+    } else {
+      at = new THREE.Vector3(0, 0.3, 0);
+    }
+    this.effects.play(it.effect, at);
+  }
+
+  /** 상대 캐릭터들이 바라볼 곳 */
+  setFocus(v) {
+    this.focus = v ? v.clone() : null;
+  }
+
+  /** 플레이어 줄 가운데 (월드 좌표) */
+  playerPoint(pid) {
+    return new THREE.Vector3(0, 0.1, ROW_R).applyQuaternion(seatQuat(this._seatOfPlayer(pid)));
+  }
+
+  tilePosition(id) {
+    const m = this.tileMeshes.get(id);
+    return m ? m.position.clone() : null;
   }
 
   _setFace(mesh, tile, show) {
     const ud = mesh.userData;
     if (show && !ud.face) {
+      const styleItem = getItem(ud.styleId) || defaultItem('tile');
       ud.face = new THREE.Mesh(this.faceGeo,
-        new THREE.MeshStandardMaterial({ map: this._faceTexture(tile.color, tile.value), roughness: 0.4 }));
+        new THREE.MeshStandardMaterial({ map: this._faceTexture(styleItem, tile.color, tile.value), roughness: 0.4 }));
       ud.face.position.z = TILE_D / 2 + 0.0015;
       mesh.add(ud.face);
     } else if (!show && ud.face) {
@@ -311,6 +389,7 @@ export class TableScene {
       const mesh = this.tileMeshes.get(t.id);
       const pose = poses.get(t.id);
       if (!pose) continue;
+      this._applyStyle(mesh, t, this._styleFor(game.pile.includes(t) ? null : t.ownerId));
       this._setFace(mesh, t, t.value !== null && t.value !== undefined);
 
       const pos = pose.pos.clone();
@@ -346,7 +425,8 @@ export class TableScene {
     for (const p of game.players) {
       const seat = seatOf(p.id);
       if (seat === 0) continue;
-      const av = this.avatars[seat];
+      const av = this.seats[seat];
+      av.character.setOut(p.eliminated);
       const active = game.current === p.id && game.phase !== 'over';
       const key = `${p.name}|${active}|${p.eliminated}`;
       if (key === av.key) continue;
@@ -354,8 +434,7 @@ export class TableScene {
       if (av.label.material.map) av.label.material.map.dispose();
       av.label.material.map = this._labelTexture(p.eliminated ? `${p.name} (탈락)` : p.name, active, p.eliminated);
       av.label.material.needsUpdate = true;
-      av.group.children.forEach((c) => { if (c.isMesh) c.material.transparent = p.eliminated; });
-      av.group.children.forEach((c) => { if (c.isMesh) c.material.opacity = p.eliminated ? 0.35 : 1; });
+      av.label.visible = true;
     }
   }
 
@@ -468,6 +547,14 @@ export class TableScene {
       if (Math.abs(this.pitchTarget - this.pitch) < 0.002) this.pitchTarget = null;
     }
     this.camera.rotation.set(this.pitch, this.yaw, 0);
+
+    const focus = this.focus || new THREE.Vector3(0, 0, 0);
+    for (let seat = 1; seat < 4; seat++) {
+      const c = this.seats[seat].character;
+      c.lookAt(focus);
+      c.update(dt);
+    }
+    this.effects.update(dt);
 
     const pulse = 0.18 + 0.14 * Math.sin(time * 5);
     for (const m of this.tileMeshes.values()) {
